@@ -4,17 +4,11 @@ import subprocess
 import datetime
 
 thread_no = 56;
-no_iter   = 2;
-
-CHUNK_LINE = "constexpr static const unsigned CHUNK_SIZE";
-CCHUNK_LINE = "const int CHUNK_SIZE";
-EDGE_LINE = "constexpr static const ptrdiff_t EDGE_TILE_SIZE"; 
-CEDGE_LINE = "const int EDGE_TILE_SIZE"
+no_iter   = 1;
+get_src_from_file = 0;
 
 app_lists   = ["pr", "cc", "sssp", "bfs"]
-#app_lists   = ["bfs"]
 #app_lists = ["sssp", "bfs"]
-#app_lists   = ["cc"]
 file_lists  = { "bfs":{"dir":"bfs", "src":"bfs"}, \
 		"cc":{"dir":"connectedcomponents", "src":"ConnectedComponents"}, \
 		"pr":{"dir":"pagerank", "src":"PageRank-pull"}, \
@@ -22,18 +16,15 @@ file_lists  = { "bfs":{"dir":"bfs", "src":"bfs"}, \
 #app_lists  = [ "cc" ]
 
 # possible algorithm options per application
-app_algo_dics = {"bfs":["AsyncTile", "Async", "SyncTile", "Sync", "Sync2pTile","Sync2p"],
+app_algorithms = {"bfs":["AsyncTile", "Async", "SyncTile", "Sync", "Sync2pTile","Sync2p"],
                  "sssp":["deltaTile", "deltaStep", "serDeltaTile", "serDelta", "dijkstraTile",
                  "dijkstra", "topo", "topoTile"],
                  "cc":["Async", "EdgeAsync", "EdgetiledAsync", "BlockedAsync", "LabelProp", 
                  "Serial", "Sync"],
                  "pr":["Residual"]};
-#app_algo_dics = {"bfs":["Sync"], "sssp":["deltaStep"]};
-#app_algo_dics = {"cc":["Async", "LabelProp"]}
-input_graphs = ["road-usad", "friendster", "socLive", "twitter", "webGraph"];
-#input_graphs = ["webGraph"];
-#input_graphs = ["road-usad", "socLive", "webGraph"];
-#input_graphs = ["twitter", "friendster"];
+#app_algorithms = {"bfs":["Sync"], "sssp":["deltaStep"]};
+#app_algorithms = {"cc":["Async", "LabelProp"]}
+graphs = ["road-usad", "friendster", "socLive", "twitter", "webGraph"];
 
 # directories
 src_dir      = "/h1/hlee/far_hlee/workspace/LocalGalois/lonestar/"
@@ -48,71 +39,35 @@ bin_dir      = base_dir+"bin/";
 # each algorithm
 # to sum up, the first key is graph, and the second key is application name
 # and the last item is tuple of latencies and algorithm name used by the experiments
-min_dic      = {};
-
-# the number of iterations
-# run as the number and calculate average
-
-def read_chunk_and_edges(fdir, app):
-    ''' I want to pass chunk and edge tile size to 
-    the simpleExecutor_galois.py due to plotting '''
-    print("Reading file:"+fdir+".....");
-    ce_list = {}
-    with open(fdir, 'r') as _rfp:
-	for line in _rfp:
-	    if not app == "cc" and CHUNK_LINE in line and not "//" in line:
-		ce_list["chunk"] = int(line.split("=")[1].split(";")[0].strip());
-            if app == "cc" and CCHUNK_LINE in line and not "//" in line:
-		ce_list["chunk"] = int(line.split("=")[1].split(";")[0].strip());
-	    if not app == "cc" and EDGE_LINE in line and not "//" in line:
-		ce_list["edge"] = int(line.split("=")[1].split(";")[0].strip());
-	    if app == "cc" and CEDGE_LINE in line and not "//" in line:
-		ce_list["edge"] = int(line.split("=")[1].split(";")[0].strip());
-    return ce_list;
+best_dat      = {};
 
 def get_starting_points(graph):
     """ Use the points with non-zero out degree and don't hang during execution.  """
     if graph != "friendster":
         return ["17", "38", "47", "52", "53", "58", "59", "69", "94", "96"]
-        #return ["17"]
     else:
         # friendster takes a long time so use fewer starting points
         return ["101", "286", "16966", "37728", "56030", "155929"]
-        #return ["101"]
 
 
 def get_starting_points_from_file(app, graph):
-    """ read start point from a file
-     for bfs and sssp.
-     in usual case, the start point is a node
-     that has the maximum number of degrees """
+    """ read a start point from a file.
+    In general, the start point has the maximum degree. """
     if app != "pr":
         _fname = graph+".gr.source";
     else:
+        # page rank takes a transposed graph. 
         _fname = graph+".tgr.source";
     _fdir  = input_dir+_fname;
-    _slist = []; 
-
     if not os.path.isfile(_fdir):
-        print("Source file is incorrect.");
-
+        print("the directory does not exist: \n"+_fdir);
     _fp    = open(_fdir, "r");
     _snode = _fp.readline().rstrip();
     _fp.close();
-    _slist.append(_snode);
+    _slist = [];  _slist.append(_snode);
     return _slist;
 
-def readStartNode(snode_file_dir):
-    """ Read start node of the graphs while bfs-ing, sssp-ing.
-    Each start node is written on the *.source file 
-    """
-    _fp     = open(snode_file_dir, "r");
-    _snode  = _fp.readline().rstrip();
-    print("->Start Node:  "+ _snode);
-    _fp.close();
-    return _snode;
-
-def get_cmd_galois(g, p, point, bin_dir, algo_t):
+def get_cmd_galois(g, p, point, bin_dir, sel_algo):
     if (g in ["netflix", "netflix_2x"] and p != "cf"):
         return ""
     if (g not in ["netflix", "netflix_2x"] and p == "cf"):
@@ -127,141 +82,109 @@ def get_cmd_galois(g, p, point, bin_dir, algo_t):
 
     args = graph_path
     if (p == "cc"):
+        # This statement will be removed.
+        # Graph-it used directed graphs to get results.
+        # However, Galois cannot accept the directed graphs for CC.
+        # Therefore, verification of Galois would not work for them.
         args += " -t="+str(thread_no)+" -noverify "
     else:
         args += " -t="+str(thread_no)+" "
     if not p == "pr":
-    	args += "-algo="+algo_t+" "
-#args += " -t=48 "
+    	args += "-algo="+sel_algo+" "
  
     if p == "sssp" or p == "bfs":
         args += " -startNode=" + str(point)
     elif p == "pr":
         args += " -maxIterations=21 -algo=Residual "
-
     command = bin_dir + " " + args;
     return command;
 
 
-def get_cmd(framework, graph, app, point, bin_dir, algo_t):
-    ''' Construct commands
-    '''
+def get_cmd(framework, graph, app, point, bin_dir, sel_algo):
     if framework == "galois":
-        cmd = get_cmd_galois(graph, app, point, bin_dir, algo_t);
+        cmd = get_cmd_galois(graph, app, point, bin_dir, sel_algo);
     return cmd;
 
-def execute(framework, graph, app, snode, bin_dir, algo_t):
-    """ Execute binary file
-    """
-    cmd = get_cmd(framework, graph, app, snode, bin_dir, algo_t);
+def execute(framework, graph, app, snode, bin_dir, sel_algo):
+    # consturct a command.
+    cmd = get_cmd(framework, graph, app, snode, bin_dir, sel_algo);
     print(cmd);
-    #subprocess.check_call(cmd, shell=True);
     out = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
     (output, err) = out.communicate()
     return output
 
-def getBinFname(app):
+def get_bin_fname(app): 
+    # simply get binary file name.
     if app == "pr":
         return "pagerank-pull"
     elif app == "cc":
         return "connectedcomponents"
     return app;
 
-def line_pre_adder(_fdir, n_line):
-    ''' we can decide the minest number at a point where the experiments
-        are finisehd. '''
-    print(_fdir);
+def attach_summ_begin(_fdir, n_line):
     _fp     = open(_fdir, "r");
     a_lines = _fp.readlines();
-    print("==>");
-    print(a_lines);
     a_lines.insert(0, n_line);
-    print("-->");
-    print(a_lines);
     _fp.close();
-
     _fp     = open(_fdir, "w");
     _fp.writelines(a_lines);
     _fp.close();
             
-def write_best_results(_fdir, _dic):
-    print("write best results are added");
+def summarize_best_dat(_fdir, _dic):
+    """ The best result that in this experiment, has the smallest latencies
+        is summarized in beginning of the result files. """
     nl_line = ',';
-    ## write application name
+    # write application name
     for _a in app_lists:
         nl_line += _a + ",";
     nl_line += "\n";
-    ## write a row which is for graph name + latency
-    for _i_g in input_graphs:
+    # write a row which is for graph name + latency
+    for _i_g in graphs:
         nl_line += _i_g + ",";
         for _a in app_lists:
             nl_line += str(format(_dic[_i_g][_a][0], 'f'))+",";
         nl_line += '\n';
-
     nl_line += ','
     for _a in app_lists:
         nl_line += _a + ",";
     nl_line += "\n";
-    for _i_g in input_graphs:
+    for _i_g in graphs:
         nl_line += _i_g + ",";
         for _a in app_lists:
             nl_line += str(_dic[_i_g][_a][1])+",";
         nl_line += '\n';
-    line_pre_adder(_fdir, nl_line);
+    attach_summ_begin(_fdir, nl_line);
+    
 
-if __name__=='__main__':
-    if os.path.isfile(output_dir+"/outputs"):
-        sid = datetime.datetime.now().strftime("%fs");
-        subprocess.check_call("mv "+output_dir+"/outputs "+output_dir+"/"+ \
-                sid+"_outputs", shell=True);
-        if os.path.isfile(output_dir+"/summary"):
-            subprocess.check_call("mv "+output_dir+"/summary "+output_dir+"/"+ \
-                    sid+"_summary", shell=True);
-
+def main():
     summary_fp = open(output_dir+"/summary", "w");
     log_fp     = open(output_dir+"/log", "w");
-    for input_graph in input_graphs:
-	# plotting
-        spoints = get_starting_points(input_graph);
-        min_dic[input_graph] = {};
+    for input_graph in graphs:
+        best_dat[input_graph] = {};
         for app in app_lists:
-            if os.path.exists(output_dir+"/for_plot_"+app):
-                append_write = 'a'
+            best_dat[input_graph][app]=[];
+            best_dat[input_graph][app].append(99999999999);
+            best_dat[input_graph][app].append(99999999999);
+
+            # setup start nodes for bfs and sssp.
+            if get_src_from_file == 1:
+                spoints = get_starting_points_from_file(app, input_graph);
             else:
-                append_write = 'w'
-            plot_fp = open(output_dir+"/for_plot_"+app, append_write);
+                spoints = get_starting_points(input_graph);
 
-            min_dic[input_graph][app]=[];
-            min_dic[input_graph][app].append(99999999999);
-            min_dic[input_graph][app].append(99999999999);
-            # get start point from .source file
-            # print(app+" , "+input_graph);
-            #spoints = get_starting_points_from_file(app, input_graph);
-            #print(str(spoints));
-
-            exec_dir = bin_dir+"/"+getBinFname(app);
+            exec_bin_dir = bin_dir+"/"+get_bin_fname(app);
             summary_fp.write("Application: "+app+", Input Graph: "+input_graph+",\n");
-	    #ce_list = read_chunk_and_edges(src_dir+file_lists[app]["dir"]+"/"+ \
-		#			file_lists[app]["src"]+".cpp", app);
-	    #CHUNK_SIZE = str(ce_list["chunk"]);
-	    #if not app == "pr":
-	    #	EDGET_SIZE = str(ce_list["edge"]);
-	    #else:
-		#EDGET_SIZE = "-1"
-   	    #print(">>>>>>>> APP:"+app+", CHUNK_SIZE:"+CHUNK_SIZE+", EDGE_TILE_SIZE:"+EDGET_SIZE)
-            for algo_t in app_algo_dics[app]:
-                print("app:"+app+", input_g:"+input_graph+", algo:"+algo_t);
-                subprocess.check_call("echo 'Algorithm,"+algo_t+",\n' >> "+output_dir+"/output", shell=True);
-                summary_fp.write("Algorithm Type: "+algo_t+",\n");
-                # to calculate average
+            for sel_algo in app_algorithms[app]:
+                print("app:"+app+", input_g:"+input_graph+", algo:"+sel_algo);
+                subprocess.check_call("echo 'Algorithm,"+sel_algo+",\n' >> "+output_dir+"/output", shell=True);
+                summary_fp.write("Algorithm Type: "+sel_algo+",\n");
                 sum = 0.0;
                 count = 0;
-                ##
                 summary_fp.write("Start Node: [");
                 for iter in range(0, no_iter):
                     for snode in spoints:
                         summary_fp.write(snode+" ");
-                        output  = execute("galois", input_graph, app, snode, exec_dir, algo_t);
+                        output  = execute("galois", input_graph, app, snode, exec_bin_dir, sel_algo);
                         print (str(output));
                         log_fp.write(str(output));
                         out     = subprocess.Popen("cat perf_result", stdout=subprocess.PIPE, shell=True);
@@ -269,21 +192,14 @@ if __name__=='__main__':
                         latency = float(output[0].split(",")[2]);
                         sum    += latency;
                         count  += 1;
-                        # format: (algo_t)_(input_graph),(chunk_size),(edge_size),(latency)
-                        #plot_fp.write(algo_t+"_"+input_graph+","+CHUNK_SIZE+","+EDGET_SIZE+","+str(latency)+"\n");
-                        #sum += float(output[0].split(",")[2]);
-                        #print("Start Node: "+snode);
-                        #print(str(latency));
-                        #print(str(count)+", "+str(sum));
                         subprocess.check_call("cat perf_result >> "+output_dir+"/output", shell=True);
-                #summary_fp.write("],"+str(sum)+", "+str(count)+", "+str(format(sum/float(count), 'f'))+"\n");
                 summary_fp.write("],"+str(format(sum/float(count), 'f'))+"\n");
-                if min_dic[input_graph][app][0] > sum/float(count):
-                    #print("updated to "+str(sum/float(count)));
-                    min_dic[input_graph][app][0] = sum/float(count)
-                    min_dic[input_graph][app][1] = algo_t;
-            plot_fp.close()
+                if best_dat[input_graph][app][0] > sum/float(count):
+                    best_dat[input_graph][app][0] = sum/float(count)
+                    best_dat[input_graph][app][1] = sel_algo;
     log_fp.close();
     summary_fp.close();
-    write_best_results(output_dir+"/summary",min_dic);
-    #print(str(min_dic));
+    summarize_best_dat(output_dir+"/summary",best_dat);
+
+if __name__=='__main__':
+    main()
