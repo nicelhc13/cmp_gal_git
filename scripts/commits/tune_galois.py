@@ -2,12 +2,13 @@ import os
 import difflib
 import subprocess
 import datetime
+import argparse
 
 thread_no = 56;
 no_iter   = 1;
 get_src_from_file = 0;
 
-app_lists   = ["pr", "cc", "sssp", "bfs"]
+#app_lists   = ["pr", "cc", "sssp", "bfs"]
 #app_lists = ["sssp", "bfs"]
 file_lists  = { "bfs":{"dir":"bfs", "src":"bfs"}, \
 		"cc":{"dir":"connectedcomponents", "src":"ConnectedComponents"}, \
@@ -24,14 +25,15 @@ app_algorithms = {"bfs":["AsyncTile", "Async", "SyncTile", "Sync", "Sync2pTile",
                  "pr":["Residual"]};
 #app_algorithms = {"bfs":["Sync"], "sssp":["deltaStep"]};
 #app_algorithms = {"cc":["Async", "LabelProp"]}
-graphs = ["road-usad", "friendster", "socLive", "twitter", "webGraph"];
+#graphs = ["road-usad", "friendster", "socLive", "twitter", "webGraph"];
 
 # directories
 src_dir      = "/h1/hlee/far_hlee/workspace/LocalGalois/lonestar/"
 base_dir     = "/h1/hlee/far_hlee/workspace/LocalGalois/"
 # input graphs directory
 input_dir    = base_dir+"/paper_inputs/";
-output_dir   = base_dir+"/paper_outputs/galois_tune/";
+#output_dir   = base_dir+"/paper_outputs/galois_tune/";
+output_dir   = base_dir+"/paper_outputs/test/";
 # binary directory
 bin_dir      = base_dir+"bin/";
 
@@ -67,7 +69,7 @@ def get_starting_points_from_file(app, graph):
     _slist = [];  _slist.append(_snode);
     return _slist;
 
-def get_cmd_galois(g, p, point, bin_dir, sel_algo):
+def get_cmd_galois(g, p, point, bin_dir, sel_algo, thread_no):
     if (g in ["netflix", "netflix_2x"] and p != "cf"):
         return ""
     if (g not in ["netflix", "netflix_2x"] and p == "cf"):
@@ -100,14 +102,14 @@ def get_cmd_galois(g, p, point, bin_dir, sel_algo):
     return command;
 
 
-def get_cmd(framework, graph, app, point, bin_dir, sel_algo):
+def get_cmd(framework, graph, app, point, bin_dir, sel_algo, th_no):
     if framework == "galois":
-        cmd = get_cmd_galois(graph, app, point, bin_dir, sel_algo);
+        cmd = get_cmd_galois(graph, app, point, bin_dir, sel_algo, th_no);
     return cmd;
 
-def execute(framework, graph, app, snode, bin_dir, sel_algo):
+def execute(framework, graph, app, snode, bin_dir, sel_algo, th_no):
     # consturct a command.
-    cmd = get_cmd(framework, graph, app, snode, bin_dir, sel_algo);
+    cmd = get_cmd(framework, graph, app, snode, bin_dir, sel_algo, th_no);
     print(cmd);
     out = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
     (output, err) = out.communicate()
@@ -130,7 +132,7 @@ def attach_summ_begin(_fdir, n_line):
     _fp.writelines(a_lines);
     _fp.close();
             
-def summarize_best_dat(_fdir, _dic):
+def summarize_best_dat(_fdir, _dic, app_lists, graph_lists):
     """ The best result that in this experiment, has the smallest latencies
         is summarized in beginning of the result files. """
     nl_line = ',';
@@ -139,7 +141,7 @@ def summarize_best_dat(_fdir, _dic):
         nl_line += _a + ",";
     nl_line += "\n";
     # write a row which is for graph name + latency
-    for _i_g in graphs:
+    for _i_g in graph_lists:
         nl_line += _i_g + ",";
         for _a in app_lists:
             nl_line += str(format(_dic[_i_g][_a][0], 'f'))+",";
@@ -148,7 +150,7 @@ def summarize_best_dat(_fdir, _dic):
     for _a in app_lists:
         nl_line += _a + ",";
     nl_line += "\n";
-    for _i_g in graphs:
+    for _i_g in graph_lists:
         nl_line += _i_g + ",";
         for _a in app_lists:
             nl_line += str(_dic[_i_g][_a][1])+",";
@@ -157,17 +159,47 @@ def summarize_best_dat(_fdir, _dic):
     
 
 def main():
+    # parsing arguments and setting configurations
+    parser = argparse.ArgumentParser(
+            formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('-g', '--graphs', nargs='+',
+            default=["socLive", "twitter", "road-usad",
+                                "webGraph", "friendster"],
+            help="enable graphs with socLive, twitter, \
+            road-usad, webGraph and friendster. Defaults to all \
+            listed graphs.")
+    parser.add_argument('-a', '--applications', nargs='+',
+            default=["bfs", "sssp", "pr", "cc"],
+            help="applications to benchmark. \
+                Defaults to all applications.")
+    parser.add_argument('-t', '--threads',
+            default=56,
+            help="the number of threads. Default is 56", type=int)
+    parser.add_argument('-i', '--iteration',
+            default="1", type=int,
+            help="the number of iterations for the experiments. \
+                Default is 1.")
+    parser.add_argument('-s', '--snodeFrom',
+            default=0, type=int,
+            help="Setting start nodes for BFS and SSSP. \
+            You can get start from .source files (1) or use \
+            default snode lists on the script (0). \
+            Default is using default snode lists on the script (0).")
+
+    args = parser.parse_args()
+
+    # running experiments
     summary_fp = open(output_dir+"/summary", "w");
     log_fp     = open(output_dir+"/log", "w");
-    for input_graph in graphs:
+    for input_graph in args.graphs:
         best_dat[input_graph] = {};
-        for app in app_lists:
+        for app in args.applications:
             best_dat[input_graph][app]=[];
             best_dat[input_graph][app].append(99999999999);
             best_dat[input_graph][app].append(99999999999);
 
             # setup start nodes for bfs and sssp.
-            if get_src_from_file == 1:
+            if args.snodeFrom == 1:
                 spoints = get_starting_points_from_file(app, input_graph);
             else:
                 spoints = get_starting_points(input_graph);
@@ -181,10 +213,10 @@ def main():
                 sum = 0.0;
                 count = 0;
                 summary_fp.write("Start Node: [");
-                for iter in range(0, no_iter):
+                for iter in range(0, args.iteration):
                     for snode in spoints:
                         summary_fp.write(snode+" ");
-                        output  = execute("galois", input_graph, app, snode, exec_bin_dir, sel_algo);
+                        output  = execute("galois", input_graph, app, snode, exec_bin_dir, sel_algo, args.threads);
                         print (str(output));
                         log_fp.write(str(output));
                         out     = subprocess.Popen("cat perf_result", stdout=subprocess.PIPE, shell=True);
@@ -199,7 +231,7 @@ def main():
                     best_dat[input_graph][app][1] = sel_algo;
     log_fp.close();
     summary_fp.close();
-    summarize_best_dat(output_dir+"/summary",best_dat);
+    summarize_best_dat(output_dir+"/summary",best_dat, args.applications, args.graphs);
 
 if __name__=='__main__':
     main()
