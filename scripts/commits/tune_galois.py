@@ -23,19 +23,19 @@ app_algorithms = {"bfs":["AsyncTile", "Async", "SyncTile", "Sync", "Sync2pTile",
                  "cc":["Async", "EdgeAsync", "EdgetiledAsync", "BlockedAsync", "LabelProp", 
                  "Serial", "Sync"],
                  "pr":["Residual"],
-                 "prb":["Residual"] # pagerank with bitmap frontier data structure};
+                 "prb":["Residual"] # pagerank with bitmap frontier data structure
+                 };
 
 #app_algorithms = {"bfs":["Sync"], "sssp":["deltaStep"]};
 #app_algorithms = {"cc":["Async", "LabelProp"]}
 #graphs = ["road-usad", "friendster", "socLive", "twitter", "webGraph"];
 
 # directories
-src_dir      = "/h1/hlee/far_hlee/workspace/LocalGalois/lonestar/"
 base_dir     = "/h1/hlee/far_hlee/workspace/LocalGalois/"
 # input graphs directory
 input_dir    = base_dir+"/paper_inputs/";
 #output_dir   = base_dir+"/paper_outputs/galois_tune/";
-output_dir   = base_dir+"/paper_outputs/pr_cmp_prb";
+output_dir   = base_dir+"/paper_outputs/pr_cmp_prb_test";
 # binary directory
 bin_dir      = base_dir+"bin/";
 
@@ -203,8 +203,9 @@ def main():
         best_dat[input_graph] = {};
         for app in args.applications:
             best_dat[input_graph][app]=[];
-            best_dat[input_graph][app].append(99999999999);
-            best_dat[input_graph][app].append(99999999999);
+            best_dat[input_graph][app].append(float('inf'));
+            best_dat[input_graph][app].append(float('inf'));
+            print(float('inf'));
 
             # setup start nodes for bfs and sssp.
             if app == "bfs" or app == "sssp":
