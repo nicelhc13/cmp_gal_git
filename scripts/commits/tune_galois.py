@@ -1,3 +1,44 @@
+#!/usr/bin/env python
+"""
+Example usage:
+    # Basic execution
+    python tune_galois.py -a \<benchmarks> -g \<input graphs> -t \<the # of threads>
+
+    # Available options (01.11.2019)
+    -t, --threads:
+        You can specify the number of threads for an experiments.
+
+    -a, --applications:
+        Benchmarks for an expriemnt.
+         bfs (Breadth First Search)
+         cc  (Connected Components)
+         pr  (Page Rank)
+         prb (Page Rank with bitmap)
+         sssp (Single Source Shortest Path)
+
+    -g, --graphs:
+        Input graphs.
+         road-usad:
+         friendster:
+         twitter:
+         socLive:
+         webGraph:
+
+    -i, --iteration:
+        You can specify the number of iterations of an experiment.
+        After iterating as the specified number,
+        it would calculate an average of results.
+
+
+    -s, --snodeFrom:
+        You can specify a source for BFS and SSSP's start nodes.
+        There are two options: using that are in a file or
+                                    that are hard-coded in this script.
+        Basically, when trying to compare with other frameworks,
+            we used hard-coded start nodes and got an average.
+        However, if we wanted to see performance variations according to the
+            configurations, we used a start node that has highest out-degrees.
+"""
 import os
 import difflib
 import subprocess
