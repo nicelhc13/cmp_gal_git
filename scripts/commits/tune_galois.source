@@ -1,0 +1,4 @@
+export BASE_GAL_DIR="/h1/hlee/far_hlee/workspace/LocalGalois"
+export GAL_INPUT_DIR=$BASE_GAL_DIR"/paper_inputs"
+export GAL_OUTPUT_DIR=$BASE_GAL_DIR"/paper_outputs"
+export GAL_BIN_DIR=$BASE_GAL_DIR"/bin"

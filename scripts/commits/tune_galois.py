@@ -72,13 +72,17 @@ app_algorithms = {"bfs":["AsyncTile", "Async", "SyncTile", "Sync", "Sync2pTile",
 #graphs = ["road-usad", "friendster", "socLive", "twitter", "webGraph"];
 
 # directories
-base_dir     = "/h1/hlee/far_hlee/workspace/LocalGalois/"
+#base_dir     = "/h1/hlee/far_hlee/workspace/LocalGalois"
+base_dir   = os.environ["BASE_GAL_DIR"]
 # input graphs directory
-input_dir    = base_dir+"/paper_inputs/";
+#input_dir    = base_dir+"/paper_inputs";
+input_dir  = os.environ["GAL_INPUT_DIR"]
 #output_dir   = base_dir+"/paper_outputs/galois_tune/";
-output_dir   = base_dir+"/paper_outputs/pr_cmp_prb_test";
+#output_dir   = base_dir+"/paper_outputs/pr_cmp_prb_test";
+output_dir = os.environ["GAL_OUTPUT_DIR"]
 # binary directory
-bin_dir      = base_dir+"bin/";
+#bin_dir      = base_dir+"/bin";
+bin_dir    = os.environ["GAL_BIN_DIR"]
 
 # summarize dictionary which maintains min latencies consumed by and algorithm used by 
 # each algorithm
@@ -103,7 +107,7 @@ def get_starting_points_from_file(app, graph):
     else:
         # page rank takes a transposed graph. 
         _fname = graph+".tgr.source";
-    _fdir  = input_dir+_fname;
+    _fdir  = input_dir+"/"+_fname;
     if not os.path.isfile(_fdir):
         print("the directory does not exist: \n"+_fdir);
     _fp    = open(_fdir, "r");
@@ -119,13 +123,13 @@ def get_cmd_galois(g, p, point, bin_dir, sel_algo, thread_no):
         return ""
 
     if (p == "pr" or p == "prb"):
-        graph_path = input_dir + g + "_galois.tgr"
+        graph_path = input_dir + "/" + g + "_galois.tgr"
     elif (p == "bfs"):
-        graph_path = input_dir + g + "-nw_galois.gr"
+        graph_path = input_dir + "/" + g + "-nw_galois.gr"
     elif (p == "cc"):
-        graph_path = input_dir + g + "_galois.csgr"
+        graph_path = input_dir + "/" + g + "_galois.csgr"
     else:
-        graph_path = input_dir + g + "_galois.gr"
+        graph_path = input_dir + "/" + "_galois.gr"
 
     args = graph_path
     if (p == "cc"):
@@ -246,7 +250,6 @@ def main():
             best_dat[input_graph][app]=[];
             best_dat[input_graph][app].append(float('inf'));
             best_dat[input_graph][app].append(float('inf'));
-            print(float('inf'));
 
             # setup start nodes for bfs and sssp.
             if app == "bfs" or app == "sssp":
