@@ -5,7 +5,7 @@ import datetime
 import argparse
 
 thread_no = 56;
-no_iter   = 1;
+no_iter   = 3;
 get_src_from_file = 0;
 
 #app_lists   = ["pr", "cc", "sssp", "bfs"]
@@ -22,7 +22,9 @@ app_algorithms = {"bfs":["AsyncTile", "Async", "SyncTile", "Sync", "Sync2pTile",
                  "dijkstra", "topo", "topoTile"],
                  "cc":["Async", "EdgeAsync", "EdgetiledAsync", "BlockedAsync", "LabelProp", 
                  "Serial", "Sync"],
-                 "pr":["Residual"]};
+                 "pr":["Residual"],
+                 "prb":["Residual"] # pagerank with bitmap frontier data structure};
+
 #app_algorithms = {"bfs":["Sync"], "sssp":["deltaStep"]};
 #app_algorithms = {"cc":["Async", "LabelProp"]}
 #graphs = ["road-usad", "friendster", "socLive", "twitter", "webGraph"];
@@ -33,7 +35,7 @@ base_dir     = "/h1/hlee/far_hlee/workspace/LocalGalois/"
 # input graphs directory
 input_dir    = base_dir+"/paper_inputs/";
 #output_dir   = base_dir+"/paper_outputs/galois_tune/";
-output_dir   = base_dir+"/paper_outputs/test/";
+output_dir   = base_dir+"/paper_outputs/pr_cmp_prb";
 # binary directory
 bin_dir      = base_dir+"bin/";
 
@@ -55,7 +57,7 @@ def get_starting_points(graph):
 def get_starting_points_from_file(app, graph):
     """ read a start point from a file.
     In general, the start point has the maximum degree. """
-    if app != "pr":
+    if app != "pr" or app != "prb":
         _fname = graph+".gr.source";
     else:
         # page rank takes a transposed graph. 
@@ -75,10 +77,12 @@ def get_cmd_galois(g, p, point, bin_dir, sel_algo, thread_no):
     if (g not in ["netflix", "netflix_2x"] and p == "cf"):
         return ""
 
-    if (p == "pr"):
+    if (p == "pr" or p == "prb"):
         graph_path = input_dir + g + "_galois.tgr"
     elif (p == "bfs"):
         graph_path = input_dir + g + "-nw_galois.gr"
+    elif (p == "cc"):
+        graph_path = input_dir + g + "_galois.csgr"
     else:
         graph_path = input_dir + g + "_galois.gr"
 
@@ -88,16 +92,18 @@ def get_cmd_galois(g, p, point, bin_dir, sel_algo, thread_no):
         # Graph-it used directed graphs to get results.
         # However, Galois cannot accept the directed graphs for CC.
         # Therefore, verification of Galois would not work for them.
-        args += " -t="+str(thread_no)+" -noverify "
+        #args += " -t="+str(thread_no)+" -noverify "
+        args += " -t="+str(thread_no)+" "
     else:
         args += " -t="+str(thread_no)+" "
-    if not p == "pr":
+    if not p == "pr" and not p == "prb":
     	args += "-algo="+sel_algo+" "
  
     if p == "sssp" or p == "bfs":
         args += " -startNode=" + str(point)
-    elif p == "pr":
-        args += " -maxIterations=21 -algo=Residual "
+    elif p == "pr" or p == "prb":
+    #    args += " -maxIterations=21 -algo=Residual "
+        args += " -algo=Residual "
     command = bin_dir + " " + args;
     return command;
 
@@ -119,6 +125,8 @@ def get_bin_fname(app):
     # simply get binary file name.
     if app == "pr":
         return "pagerank-pull"
+    elif app == "prb":
+        return "pagerank-pull-bmap"
     elif app == "cc":
         return "connectedcomponents"
     return app;
@@ -199,10 +207,14 @@ def main():
             best_dat[input_graph][app].append(99999999999);
 
             # setup start nodes for bfs and sssp.
-            if args.snodeFrom == 1:
-                spoints = get_starting_points_from_file(app, input_graph);
+            if app == "bfs" or app == "sssp":
+                if args.snodeFrom == 1:
+                    spoints = get_starting_points_from_file(app, input_graph);
+                else:
+                    spoints = get_starting_points(input_graph);
+            # TODO: others do not need a start point.
             else:
-                spoints = get_starting_points(input_graph);
+                spoints = ["1"];
 
             exec_bin_dir = bin_dir+"/"+get_bin_fname(app);
             summary_fp.write("Application: "+app+", Input Graph: "+input_graph+",\n");
