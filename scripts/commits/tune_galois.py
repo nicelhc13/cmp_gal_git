@@ -129,7 +129,7 @@ def get_cmd_galois(g, p, point, bin_dir, sel_algo, thread_no):
     elif (p == "cc"):
         graph_path = input_dir + "/" + g + "_galois.csgr"
     else:
-        graph_path = input_dir + "/" + "_galois.gr"
+        graph_path = input_dir + "/" + g + "_galois.gr"
 
     args = graph_path
     if (p == "cc"):
