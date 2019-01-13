@@ -1,0 +1,493 @@
+diff --git a/lonestar/bfs/bfs.cpp b/lonestar/bfs/bfs.cpp
+index 01b7ca5628..48f2260320 100644
+--- a/lonestar/bfs/bfs.cpp
++++ b/lonestar/bfs/bfs.cpp
+@@ -21,7 +21,6 @@
+ #include "galois/gstl.h"
+ #include "galois/Reduction.h"
+ #include "galois/Timer.h"
+-#include "galois/Timer.h"
+ #include "galois/graphs/LCGraph.h"
+ #include "galois/graphs/TypeTraits.h"
+ #include "llvm/Support/CommandLine.h"
+@@ -33,6 +32,7 @@
+ #include <iostream>
+ #include <deque>
+ #include <type_traits>
++#include <fstream>
+ 
+ namespace cll = llvm::cl;
+ 
+@@ -47,11 +47,13 @@ static const char* url = "breadth_first_search";
+ static cll::opt<std::string>
+     filename(cll::Positional, cll::desc("<input graph>"), cll::Required);
+ 
+-static cll::opt<unsigned int>
++//static cll::opt<unsigned int>
++static cll::opt<int>
+     startNode("startNode",
+               cll::desc("Node to start search from (default value 0)"),
+               cll::init(0));
+-static cll::opt<unsigned int>
++//static cll::opt<unsigned int>
++static cll::opt<int>
+     reportNode("reportNode",
+                cll::desc("Node to report distance to (default value 1)"),
+                cll::init(1));
+@@ -82,7 +84,8 @@ static cll::opt<Algo> algo(
+     cll::init(SyncTile));
+ 
+ using Graph =
+-    galois::graphs::LC_CSR_Graph<unsigned, void>::with_no_lockable<true>::type;
++    //galois::graphs::LC_CSR_Graph<unsigned, void>::with_no_lockable<true>::type;
++    galois::graphs::LC_CSR_Graph<int, void>::with_no_lockable<true>::type;
+ //::with_numa_alloc<true>::type;
+ 
+ using GNode = Graph::GraphNode;
+@@ -90,8 +93,11 @@ using GNode = Graph::GraphNode;
+ constexpr static const bool TRACK_WORK          = false;
+ constexpr static const unsigned CHUNK_SIZE      = 256u;
+ constexpr static const ptrdiff_t EDGE_TILE_SIZE = 256;
++//constexpr static const unsigned CHUNK_SIZE      = 256u;
++//constexpr static const ptrdiff_t EDGE_TILE_SIZE = 540;
+ 
+-using BFS = BFS_SSSP<Graph, unsigned int, false, EDGE_TILE_SIZE>;
++//using BFS = BFS_SSSP<Graph, unsigned int, false, EDGE_TILE_SIZE>;
++using BFS = BFS_SSSP<Graph, int, false, EDGE_TILE_SIZE>;
+ 
+ using UpdateRequest       = BFS::UpdateRequest;
+ using Dist                = BFS::Dist;
+@@ -422,16 +428,16 @@ int main(int argc, char** argv) {
+ 
+   galois::reportPageAlloc("MeminfoPre");
+ 
+-  galois::do_all(galois::iterate(graph),
+-                 [&graph](GNode n) { graph.getData(n) = BFS::DIST_INFINITY; });
+-  graph.getData(source) = 0;
+-
+   std::cout << "Running " << ALGO_NAMES[algo] << " algorithm with "
+             << (bool(execution) ? "PARALLEL" : "SERIAL") << " execution "
+             << std::endl;
+ 
+-  galois::StatTimer Tmain;
++
++  galois::StatTimer Tmain("cmp_timer");
+   Tmain.start();
++  galois::do_all(galois::iterate(graph),
++                 [&graph](GNode n) { graph.getData(n) = BFS::DIST_INFINITY; });
++  graph.getData(source) = 0;
+ 
+   if (execution == SERIAL) {
+     runAlgo<false>(graph, source);
+@@ -445,6 +451,14 @@ int main(int argc, char** argv) {
+ 
+   Tmain.stop();
+ 
++  float measure_time = Tmain.get()==0?Tmain.get_usec()/float(1000):Tmain.get();
++  measure_time /= float(1000);
++
++  std::ofstream perf_fp;
++  perf_fp.open("perf_result");
++  perf_fp << "BFS," << filename << "," << measure_time << ",\n" << std::endl;
++  perf_fp.close();
++
+   galois::reportPageAlloc("MeminfoPost");
+ 
+   std::cout << "Node " << reportNode << " has distance "
+diff --git a/lonestar/connectedcomponents/ConnectedComponents.cpp b/lonestar/connectedcomponents/ConnectedComponents.cpp
+index 65d127c7a8..e1f8b8ca02 100644
+--- a/lonestar/connectedcomponents/ConnectedComponents.cpp
++++ b/lonestar/connectedcomponents/ConnectedComponents.cpp
+@@ -107,10 +107,10 @@ struct Node : public galois::UnionFindNode<Node> {
+   }
+ 
+   component_type component() { return this->findAndCompress(); }
+-  bool isRepComp(unsigned int x) { return false; }
++  bool isRepComp(int x) { return false; }
+ };
+ 
+-const unsigned int LABEL_INF = std::numeric_limits<unsigned int>::max();
++const int LABEL_INF = std::numeric_limits<int>::max();
+ 
+ /**
+  * Serial connected components algorithm. Just use union-find.
+@@ -184,7 +184,7 @@ struct SynchronousAlgo {
+         if (src >= dst)
+           continue;
+         Node& ddata = graph.getData(dst, galois::MethodFlag::UNPROTECTED);
+-        next->push(Edge(src, &ddata, 0));
++        cur->push(Edge(src, &ddata, 0));
+         break;
+       }
+     });
+@@ -239,13 +239,13 @@ struct SynchronousAlgo {
+ struct LabelPropAlgo {
+ 
+   struct LNode {
+-    using component_type = unsigned int;
+-    std::atomic<unsigned int> comp_current;
+-    unsigned int comp_old;
++    using component_type = int;
++    std::atomic<int> comp_current;
++    int comp_old;
+ 
+     component_type component() { return comp_current; }
+     bool isRep() { return false; }
+-    bool isRepComp(unsigned int x) { return x == comp_current; }
++    bool isRepComp(int x) { return x == comp_current; }
+   };
+ 
+   using Graph =
+@@ -275,7 +275,7 @@ struct LabelPropAlgo {
+               for (auto e : graph.edges(src, galois::MethodFlag::UNPROTECTED)) {
+                 GNode dst              = graph.getEdgeDst(e);
+                 auto& ddata            = graph.getData(dst);
+-                unsigned int label_new = sdata.comp_current;
++                int label_new = sdata.comp_current;
+                 galois::atomicMin(ddata.comp_current, label_new);
+               }
+             }
+@@ -284,6 +284,13 @@ struct LabelPropAlgo {
+           galois::loopname("LabelPropAlgo"));
+ 
+     } while (changed.reduce());
++      std::ofstream vtx_fp;
++      vtx_fp.open("vtx_output");
++      int counter = 0;
++      for (auto ii = graph.begin(), ei = graph.end(); ii != ei;
++              ii++, counter++)
++          vtx_fp << counter << " " << graph.getData(*ii).comp_current << "\n";
++      vtx_fp.close();
+   }
+ };
+ 
+@@ -559,9 +566,9 @@ bool verify(Graph& graph,
+       GNode dst  = graph.getEdgeDst(ii);
+       auto& data = graph.getData(dst);
+       if (data.component() != me.component()) {
+-        std::cerr << "not in same component: " << (unsigned int)n << " ("
++        std::cerr << "not in same component: " << (int)n << " ("
+                   << me.component() << ")"
+-                  << " and " << (unsigned int)dst << " (" << data.component()
++                  << " and " << (int)dst << " (" << data.component()
+                   << ")"
+                   << "\n";
+         return true;
+@@ -594,7 +601,7 @@ typename Graph::node_data_type::component_type findLargest(Graph& graph) {
+                    auto& n = graph.getData(x, galois::MethodFlag::UNPROTECTED);
+ 
+                    if (std::is_same<Algo, LabelPropAlgo>::value) {
+-                     if (n.isRepComp((unsigned int)x)) {
++                     if (n.isRepComp((int)x)) {
+                        accumReps += 1;
+                        return;
+                      }
+@@ -648,7 +655,7 @@ void initialize(Graph& graph) {}
+ 
+ template <>
+ void initialize<LabelPropAlgo::Graph>(typename LabelPropAlgo::Graph& graph) {
+-  unsigned int id = 0;
++  int id = 0;
+ 
+   for (typename LabelPropAlgo::Graph::iterator ii = graph.begin(),
+                                                ei = graph.end();
+@@ -668,6 +675,8 @@ void run() {
+   algo.readGraph(graph);
+   std::cout << "Read " << graph.size() << " nodes\n";
+ 
++  galois::StatTimer T;
++  T.start();
+   initialize(graph);
+ 
+   galois::preAlloc(numThreads +
+@@ -675,11 +684,28 @@ void run() {
+                        galois::runtime::pagePoolSize());
+   galois::reportPageAlloc("MeminfoPre");
+ 
+-  galois::StatTimer T;
+-  T.start();
+   algo(graph);
+   T.stop();
+ 
++  std::cout <<"time:" << T.get() << ", usec time:" << T.get_usec() << std::endl;
++  float measure_time = T.get()==0?T.get_usec()/float(1000):T.get();
++  measure_time /= float(1000);
++
++  std::ofstream perf_fp;
++  perf_fp.open("perf_result");
++  perf_fp << "CC," << inputFilename << "," << std::fixed << measure_time << ",\n" << std::endl;
++  perf_fp.close();
++
++
++  std::ofstream vtx_fp;
++  vtx_fp.open("vtx_output");
++  int counter = 0;
++  for (auto ii = graph.begin(), ei = graph.end(); ii != ei;
++		  ii++, counter++)
++	  vtx_fp << counter << " " << graph.getData(*ii).component() - graph.getData(*graph.begin()).component() << "\n";
++  vtx_fp.close();
++
++
+   galois::reportPageAlloc("MeminfoPost");
+ 
+   if (!skipVerify || largestComponentFilename != "" ||
+diff --git a/lonestar/include/Lonestar/BFS_SSSP.h b/lonestar/include/Lonestar/BFS_SSSP.h
+index 9c36e4d19d..c98bf4fabd 100644
+--- a/lonestar/include/Lonestar/BFS_SSSP.h
++++ b/lonestar/include/Lonestar/BFS_SSSP.h
+@@ -29,7 +29,8 @@ struct BFS_SSSP {
+   using Dist = _DistLabel;
+ 
+   constexpr static const Dist DIST_INFINITY =
+-      std::numeric_limits<Dist>::max() / 2 - 1;
++//      std::numeric_limits<Dist>::max() / 2 - 1;
++      std::numeric_limits<Dist>::max() / 2;
+ 
+   using GNode = typename Graph::GraphNode;
+   using EI    = typename Graph::edge_iterator;
+@@ -246,7 +247,7 @@ struct BFS_SSSP {
+                 << " unvisited nodes; this is an error if the graph is "
+                    "strongly connected\n";
+ 
+-    std::atomic<bool> not_c;
++    std::atomic<bool> not_c(false);
+     galois::do_all(galois::iterate(graph), not_consistent(graph, not_c));
+ 
+     if (not_c) {
+diff --git a/lonestar/pagerank/PageRank-constants.h b/lonestar/pagerank/PageRank-constants.h
+index 386b49b09c..e00e6543cb 100644
+--- a/lonestar/pagerank/PageRank-constants.h
++++ b/lonestar/pagerank/PageRank-constants.h
+@@ -32,7 +32,8 @@ static const char* url  = 0;
+ constexpr static const float ALPHA         = 0.85;
+ constexpr static const float INIT_RESIDUAL = 1 - ALPHA;
+ 
+-constexpr static const float TOLERANCE   = 1.0e-3;
++//constexpr static const float TOLERANCE   = 1.0e-3;
++constexpr static const float TOLERANCE   = 1.0e-12;
+ constexpr static const unsigned MAX_ITER = 1000;
+ 
+ constexpr static const unsigned PRINT_TOP = 20;
+@@ -48,7 +49,7 @@ static cll::opt<std::string>
+     filename(cll::Positional, cll::desc("<input graph>"), cll::Required);
+ 
+ // Type definitions
+-typedef float PRTy;
++typedef double PRTy;
+ 
+ template <typename GNode>
+ struct TopPair {
+diff --git a/lonestar/pagerank/PageRank-pull.cpp b/lonestar/pagerank/PageRank-pull.cpp
+index b2eba0c2a7..cd30fb855d 100644
+--- a/lonestar/pagerank/PageRank-pull.cpp
++++ b/lonestar/pagerank/PageRank-pull.cpp
+@@ -25,6 +25,7 @@
+ #include "galois/graphs/LCGraph.h"
+ #include "galois/graphs/TypeTraits.h"
+ #include "galois/gstl.h"
++#include <fstream>
+ 
+ const char* desc =
+     "Computes page ranks a la Page and Brin. This is a pull-style algorithm.";
+@@ -38,15 +39,18 @@ static cll::opt<Algo> algo("algo", cll::desc("Choose an algorithm:"),
+                                        clEnumValEnd),
+                            cll::init(Residual));
+ 
+-constexpr static const unsigned CHUNK_SIZE = 32;
++//constexpr static const unsigned CHUNK_SIZE = 32u;
++constexpr static const unsigned CHUNK_SIZE = 32u;
+ 
+ struct LNode {
+   PRTy value;
+-  uint32_t nout;
++  //uint32_t nout;
++  int32_t nout;
+ };
+ 
+ typedef galois::graphs::LC_CSR_Graph<LNode, void>::with_no_lockable<
+-    true>::type ::with_numa_alloc<true>::type Graph;
++    //true>::type ::with_numa_alloc<true>::type Graph;
++    true>::type ::with_numa_alloc<false>::type Graph;
+ typedef typename Graph::GraphNode GNode;
+ 
+ using DeltaArray    = galois::LargeArray<PRTy>;
+@@ -69,10 +73,11 @@ void initNodeDataResidual(Graph& g, DeltaArray& delta,
+   galois::do_all(galois::iterate(g),
+                  [&](const GNode& n) {
+                    auto& sdata = g.getData(n, galois::MethodFlag::UNPROTECTED);
+-                   sdata.value = 0;
+-                   sdata.nout  = 0;
+-                   delta[n]    = 0;
+-                   residual[n] = INIT_RESIDUAL;
++                   sdata.value = (float) 0;
++                   sdata.nout  = (float) 0;
++                   delta[n]    = (float) 0;
++                   //residual[n] = INIT_RESIDUAL;
++                   residual[n] = (1 - ALPHA)/((float)g.size());
+                  },
+                  galois::no_stats(), galois::loopname("initNodeData"));
+ }
+@@ -115,7 +120,7 @@ void computeOutDeg(Graph& graph) {
+ void computePRResidual(Graph& graph, DeltaArray& delta,
+                        ResidualArray& residual) {
+   unsigned int iterations = 0;
+-  galois::GAccumulator<unsigned int> accum;
++  //galois::GAccumulator<unsigned int> accum;
+ 
+   while (true) {
+     galois::do_all(galois::iterate(graph),
+@@ -129,7 +134,7 @@ void computePRResidual(Graph& graph, DeltaArray& delta,
+                        sdata.value += oldResidual;
+                        if (sdata.nout > 0) {
+                          delta[src] = oldResidual * ALPHA / sdata.nout;
+-                         accum += 1;
++                         //accum += 1;
+                        }
+                      }
+                    },
+@@ -156,10 +161,11 @@ void computePRResidual(Graph& graph, DeltaArray& delta,
+ #endif
+ 
+     iterations++;
+-    if (iterations >= maxIterations || !accum.reduce()) {
++    //if (iterations >= maxIterations || !accum.reduce()) {
++    if (iterations >= maxIterations) {
+       break;
+     }
+-    accum.reset();
++    //accum.reset();
+   } // end while(true)
+ 
+   if (iterations >= maxIterations) {
+@@ -229,10 +235,10 @@ void computePRTopological(Graph& graph) {
+ }
+ 
+ void prTopological(Graph& graph) {
+-  initNodeDataTopological(graph);
+-  computeOutDeg(graph);
+   galois::StatTimer prTimer;
+   prTimer.start();
++  initNodeDataTopological(graph);
++  computeOutDeg(graph);
+   computePRTopological(graph);
+   prTimer.stop();
+ }
+@@ -243,12 +249,20 @@ void prResidual(Graph& graph) {
+   ResidualArray residual;
+   residual.allocateInterleaved(graph.size());
+ 
++  galois::StatTimer prTimer("Compute PR time:");
++  prTimer.start();
+   initNodeDataResidual(graph, delta, residual);
+   computeOutDeg(graph);
+-  galois::StatTimer prTimer;
+-  prTimer.start();
+   computePRResidual(graph, delta, residual);
+   prTimer.stop();
++
++  float measure_time = prTimer.get()==0?prTimer.get_usec()/float(1000):prTimer.get();
++  measure_time /= float(1000);
++
++  std::ofstream perf_fp;
++  perf_fp.open("perf_result");
++  perf_fp << "PR," << filename << "," << measure_time << ",\n" << std::endl;
++  perf_fp.close();
+ }
+ 
+ int main(int argc, char** argv) {
+diff --git a/lonestar/sssp/SSSP.cpp b/lonestar/sssp/SSSP.cpp
+index 1937b1b50c..c26c1eea39 100644
+--- a/lonestar/sssp/SSSP.cpp
++++ b/lonestar/sssp/SSSP.cpp
+@@ -31,6 +31,7 @@
+ #include "Lonestar/BFS_SSSP.h"
+ 
+ #include <iostream>
++#include <fstream>
+ 
+ namespace cll = llvm::cl;
+ 
+@@ -43,15 +44,18 @@ static const char* url = "single_source_shortest_path";
+ static cll::opt<std::string>
+     filename(cll::Positional, cll::desc("<input graph>"), cll::Required);
+ 
+-static cll::opt<unsigned int>
++//static cll::opt<unsigned int>
++static cll::opt<int>
+     startNode("startNode",
+               cll::desc("Node to start search from (default value 0)"),
+               cll::init(0));
+-static cll::opt<unsigned int>
++//static cll::opt<unsigned int>
++static cll::opt<int>
+     reportNode("reportNode",
+                cll::desc("Node to report distance to(default value 1)"),
+                cll::init(1));
+-static cll::opt<unsigned int>
++//static cll::opt<unsigned int>
++static cll::opt<int>
+     stepShift("delta",
+               cll::desc("Shift value for the deltastep (default value 13)"),
+               cll::init(13));
+@@ -85,16 +89,22 @@ static cll::opt<Algo>
+ // typedef galois::graphs::LC_InlineEdge_Graph<std::atomic<unsigned int>,
+ // uint32_t>::with_no_lockable<true>::type::with_numa_alloc<true>::type Graph;
+ //! [withnumaalloc]
+-using Graph = galois::graphs::LC_CSR_Graph<std::atomic<uint32_t>, uint32_t>::
+-    with_no_lockable<true>::type ::with_numa_alloc<true>::type;
++//using Graph = galois::graphs::LC_CSR_Graph<std::atomic<uint32_t>, uint32_t>::
++using Graph = galois::graphs::LC_CSR_Graph<std::atomic<int32_t>, int32_t>::
++    //with_no_lockable<true>::type ::with_numa_alloc<true>::type;
++    with_no_lockable<true>::type ::with_numa_alloc<false>::type;
+ //! [withnumaalloc]
+ typedef Graph::GraphNode GNode;
+ 
+ constexpr static const bool TRACK_WORK          = false;
+ constexpr static const unsigned CHUNK_SIZE      = 64u;
+ constexpr static const ptrdiff_t EDGE_TILE_SIZE = 512;
++//constexpr static const unsigned CHUNK_SIZE      = 150u;
++//constexpr static const ptrdiff_t EDGE_TILE_SIZE = 512;
+ 
+-using SSSP                 = BFS_SSSP<Graph, uint32_t, true, EDGE_TILE_SIZE>;
++
++//using SSSP                 = BFS_SSSP<Graph, uint32_t, true, EDGE_TILE_SIZE>;
++using SSSP                 = BFS_SSSP<Graph, int32_t, true, EDGE_TILE_SIZE>;
+ using Dist                 = SSSP::Dist;
+ using UpdateRequest        = SSSP::UpdateRequest;
+ using UpdateRequestIndexer = SSSP::UpdateRequestIndexer;
+@@ -398,16 +408,16 @@ int main(int argc, char** argv) {
+         << "WARNING: Do not expect the default to be good for your graph.\n";
+   }
+ 
+-  galois::do_all(galois::iterate(graph),
+-                 [&graph](GNode n) { graph.getData(n) = SSSP::DIST_INFINITY; });
+-
+-  graph.getData(source) = 0;
+-
+   std::cout << "Running " << ALGO_NAMES[algo] << " algorithm" << std::endl;
+ 
+   galois::StatTimer Tmain;
+   Tmain.start();
+ 
++  galois::do_all(galois::iterate(graph),
++                 [&graph](GNode n) { graph.getData(n) = SSSP::DIST_INFINITY; });
++
++  graph.getData(source) = 0;
++
+   switch (algo) {
+   case deltaTile:
+     deltaStepAlgo<SrcEdgeTile>(graph, source, SrcEdgeTilePushWrap{graph},
+@@ -445,6 +455,13 @@ int main(int argc, char** argv) {
+ 
+   Tmain.stop();
+ 
++  float measure_time = Tmain.get()==0?Tmain.get_usec()/float(1000):Tmain.get();
++  measure_time /= float(1000);
++
++  std::ofstream perf_fp;
++  perf_fp.open("perf_result");
++  perf_fp << "SSSP," << filename << "," << std::fixed << measure_time << ",\n" << std::endl;
++  perf_fp.close();
+   galois::reportPageAlloc("MeminfoPost");
+ 
+   std::cout << "Node " << reportNode << " has distance "
