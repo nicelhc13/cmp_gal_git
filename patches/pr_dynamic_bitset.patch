@@ -1,0 +1,77 @@
+diff --git a/lonestar/pagerank/PageRank-pull.cpp b/lonestar/pagerank/PageRank-pull.cpp
+index b2eba0c2a7..bed88409bd 100644
+--- a/lonestar/pagerank/PageRank-pull.cpp
++++ b/lonestar/pagerank/PageRank-pull.cpp
+@@ -25,6 +25,8 @@
+ #include "galois/graphs/LCGraph.h"
+ #include "galois/graphs/TypeTraits.h"
+ #include "galois/gstl.h"
++#include "galois/DynamicBitset.h"
++#include <fstream>
+ 
+ const char* desc =
+     "Computes page ranks a la Page and Brin. This is a pull-style algorithm.";
+@@ -51,6 +53,7 @@ typedef typename Graph::GraphNode GNode;
+ 
+ using DeltaArray    = galois::LargeArray<PRTy>;
+ using ResidualArray = galois::LargeArray<PRTy>;
++using DynamicBitSet = galois::DynamicBitSet;
+ 
+ //! [example of no_stats]
+ void initNodeDataTopological(Graph& g) {
+@@ -113,11 +116,12 @@ void computeOutDeg(Graph& graph) {
+ 
+ //! [scalarreduction]
+ void computePRResidual(Graph& graph, DeltaArray& delta,
+-                       ResidualArray& residual) {
++                       ResidualArray& residual, DynamicBitSet& bset) {
+   unsigned int iterations = 0;
+   galois::GAccumulator<unsigned int> accum;
+ 
+   while (true) {
++    bset.reset();
+     galois::do_all(galois::iterate(graph),
+                    [&](const GNode& src) {
+                      auto& sdata = graph.getData(src);
+@@ -130,6 +134,7 @@ void computePRResidual(Graph& graph, DeltaArray& delta,
+                        if (sdata.nout > 0) {
+                          delta[src] = oldResidual * ALPHA / sdata.nout;
+                          accum += 1;
++                         bset.set(src);
+                        }
+                      }
+                    },
+@@ -140,7 +145,7 @@ void computePRResidual(Graph& graph, DeltaArray& delta,
+                      float sum = 0;
+                      for (auto nbr : graph.edges(src)) {
+                        GNode dst = graph.getEdgeDst(nbr);
+-                       if (delta[dst] > 0) {
++                       if (bset.test(dst)) {
+                          sum += delta[dst];
+                        }
+                      }
+@@ -242,13 +247,23 @@ void prResidual(Graph& graph) {
+   delta.allocateInterleaved(graph.size());
+   ResidualArray residual;
+   residual.allocateInterleaved(graph.size());
++  DynamicBitSet bset;
++  bset.resize(graph.size());
+ 
+   initNodeDataResidual(graph, delta, residual);
+   computeOutDeg(graph);
+   galois::StatTimer prTimer;
+   prTimer.start();
+-  computePRResidual(graph, delta, residual);
++  computePRResidual(graph, delta, residual, bset);
+   prTimer.stop();
++
++  float measure_time = prTimer.get()==0?prTimer.get_usec()/float(1000):prTimer.get();
++  measure_time /= float(1000);
++
++  std::ofstream perf_fp;
++  perf_fp.open("perf_result");
++  perf_fp << "PR," << filename << "," << measure_time << ",\n" << std::endl;
++  perf_fp.close();
+ }
+ 
+ int main(int argc, char** argv) {
