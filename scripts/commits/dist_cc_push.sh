@@ -14,7 +14,7 @@ GRAPHS=(
 for iter in {0..$ITER_NO};
 do
     for graph in ${GRAPHS[@]}; do
-        echo bin/cc_push paper_inputs/${graph}_galois.gr -t=${THREAD_NO} -symmetricGraph
+        echo bin/cc_push paper_inputs/${graph}_galois.csgr -t=${THREAD_NO} -symmetricGraph
         ./bin/cc_push paper_inputs/${graph}_galois.csgr -t=$THREAD_NO -symmetricGraph >> cc_push_results_03
     done
 done 
