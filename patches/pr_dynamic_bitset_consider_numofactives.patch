@@ -1,0 +1,126 @@
+diff --git a/lonestar/pagerank/PageRank-pull.cpp b/lonestar/pagerank/PageRank-pull.cpp
+index b2eba0c2a7..e062a168c7 100644
+--- a/lonestar/pagerank/PageRank-pull.cpp
++++ b/lonestar/pagerank/PageRank-pull.cpp
+@@ -25,6 +25,7 @@
+ #include "galois/graphs/LCGraph.h"
+ #include "galois/graphs/TypeTraits.h"
+ #include "galois/gstl.h"
++#include "galois/DynamicBitset.h"
+ 
+ const char* desc =
+     "Computes page ranks a la Page and Brin. This is a pull-style algorithm.";
+@@ -38,6 +39,12 @@ static cll::opt<Algo> algo("algo", cll::desc("Choose an algorithm:"),
+                                        clEnumValEnd),
+                            cll::init(Residual));
+ 
++static cll::opt<unsigned int> activeElemTh("activeElemTh",
++                            cll::desc("Active element ratio threshold "
++                                "for using bitset "
++                                "(default value 7)"),
++                            cll::init(7));
++
+ constexpr static const unsigned CHUNK_SIZE = 32;
+ 
+ struct LNode {
+@@ -51,6 +58,7 @@ typedef typename Graph::GraphNode GNode;
+ 
+ using DeltaArray    = galois::LargeArray<PRTy>;
+ using ResidualArray = galois::LargeArray<PRTy>;
++using DynamicBitSet = galois::DynamicBitSet;
+ 
+ //! [example of no_stats]
+ void initNodeDataTopological(Graph& g) {
+@@ -113,11 +121,12 @@ void computeOutDeg(Graph& graph) {
+ 
+ //! [scalarreduction]
+ void computePRResidual(Graph& graph, DeltaArray& delta,
+-                       ResidualArray& residual) {
++                       ResidualArray& residual, DynamicBitSet& bset) {
+   unsigned int iterations = 0;
+   galois::GAccumulator<unsigned int> accum;
+ 
+   while (true) {
++    bset.reset();
+     galois::do_all(galois::iterate(graph),
+                    [&](const GNode& src) {
+                      auto& sdata = graph.getData(src);
+@@ -130,26 +139,47 @@ void computePRResidual(Graph& graph, DeltaArray& delta,
+                        if (sdata.nout > 0) {
+                          delta[src] = oldResidual * ALPHA / sdata.nout;
+                          accum += 1;
++                         bset.set(src);
+                        }
+                      }
+                    },
+                    galois::no_stats(), galois::loopname("PageRank_delta"));
+ 
+-    galois::do_all(galois::iterate(graph),
+-                   [&](const GNode& src) {
+-                     float sum = 0;
+-                     for (auto nbr : graph.edges(src)) {
+-                       GNode dst = graph.getEdgeDst(nbr);
+-                       if (delta[dst] > 0) {
+-                         sum += delta[dst];
+-                       }
+-                     }
+-                     if (sum > 0) {
+-                       residual[src] = sum;
+-                     }
+-                   },
+-                   galois::steal(), galois::chunk_size<CHUNK_SIZE>(),
+-                   galois::no_stats(), galois::loopname("PageRank"));
++    uint64_t activeElemCnt = bset.count();
++
++    if (graph.size() > activeElemCnt * activeElemTh) {
++        galois::do_all(galois::iterate(graph),
++                       [&](const GNode& src) {
++                         float sum = 0;
++                         for (auto nbr : graph.edges(src)) {
++                           GNode dst = graph.getEdgeDst(nbr);
++                           if (bset.test(dst)) {
++                             sum += delta[dst];
++                           }
++                         }
++                         if (sum > 0) {
++                           residual[src] = sum;
++                         }
++                       },
++                       galois::steal(), galois::chunk_size<CHUNK_SIZE>(),
++                       galois::no_stats(), galois::loopname("PageRank"));
++    } else {
++        galois::do_all(galois::iterate(graph),
++                       [&](const GNode& src) {
++                         float sum = 0;
++                         for (auto nbr : graph.edges(src)) {
++                           GNode dst = graph.getEdgeDst(nbr);
++                           if (delta[dst] > 0) {
++                             sum += delta[dst];
++                           }
++                         }
++                         if (sum > 0) {
++                           residual[src] = sum;
++                         }
++                       },
++                       galois::steal(), galois::chunk_size<CHUNK_SIZE>(),
++                       galois::no_stats(), galois::loopname("PageRank"));
++    }
+ 
+ #if DEBUG
+     std::cout << "iteration: " << iterations << "\n";
+@@ -242,12 +272,14 @@ void prResidual(Graph& graph) {
+   delta.allocateInterleaved(graph.size());
+   ResidualArray residual;
+   residual.allocateInterleaved(graph.size());
++  DynamicBitSet bset;
++  bset.resize(graph.size());
+ 
+   initNodeDataResidual(graph, delta, residual);
+   computeOutDeg(graph);
+   galois::StatTimer prTimer;
+   prTimer.start();
+-  computePRResidual(graph, delta, residual);
++  computePRResidual(graph, delta, residual, bset);
+   prTimer.stop();
+ }
+ 
